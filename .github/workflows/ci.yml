@@ -1,0 +1,36 @@
+name: Tests and images
+
+on: [push, pull_request]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest -v test_system.UnitTests
+      - run: python -m unittest -v test_system.IntegrationTests
+
+  build:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t autoservice-orders:${{ github.sha }} .
+      - run: docker build -t autoservice-repairs:${{ github.sha }} .
+
+  e2e:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up --build -d --wait rabbitmq orders repairs
+      - run: docker compose up -d orders_worker repairs_worker
+      - run: docker compose ps
+      - run: ./e2e_test.sh
+      - if: always()
+        run: docker compose logs --no-color
+      - if: always()
+        run: docker compose down -v
