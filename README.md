@@ -34,12 +34,18 @@ TEST_POSTGRES_URL=postgresql://autoservice:autoservice@localhost:5432/autoservic
 ./run_tests.sh tests/component        # при запущенном стенде
 ```
 
-## ПР5, вариант 1 (`broker_demo/`)
+## ПР5: все четыре варианта (`broker_demo/`)
 
-Авто-удаляемые очереди `ikbo-64-23_sedov_*`, обменник `ikbo-64-23_sedov_topic` (topic),
-задержка обработки равна числу точек в теле сообщения.
+| Вариант | Тип очереди | Обменник | Задержка |
+|---|---|---|---|
+| 1 | авто-удаляемая | `ikbo-64-23_sedov_v1_topic` (topic) | количество точек в теле |
+| 2 | сохраняемая | `ikbo-64-23_sedov_v2_direct` (direct) | длина тела |
+| 3 | авто-удаляемая | `ikbo-64-23_sedov_v3_fanout` (fanout) | случайное число 1–5 |
+| 4 | сохраняемая | `ikbo-64-23_sedov_v4_direct` (direct) | число в теле |
 
 ```bash
-python broker_demo/receiver.py repairs "repair.#"
-python broker_demo/sender.py repair.brakes.urgent "Замена колодок..."
+python broker_demo/receiver.py 1 repairs "repair.#"     # <вариант> <суффикс очереди> [ключи]
+python broker_demo/sender.py 1 repair.brakes.urgent "Замена колодок..."
+python broker_demo/receiver.py 3 journal                # fanout: без ключа
+python broker_demo/sender.py 3 "" "Ремонт завершен"
 ```
