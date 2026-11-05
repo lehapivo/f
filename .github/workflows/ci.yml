@@ -1,36 +1,77 @@
-name: Tests and images
+name: Tests
 
 on: [push, pull_request]
 
+env:
+  SERVICES: clients appointments orders diagnostics repairs warehouse billing payments
+
 jobs:
-  tests:
+  unit:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [clients, appointments, orders, diagnostics, repairs, warehouse, billing, payments]
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}_service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -v tests/unit
+
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [clients, appointments, orders, diagnostics, repairs, warehouse, billing, payments]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: autoservice
+          POSTGRES_PASSWORD: autoservice
+          POSTGRES_DB: autoservice_test
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U autoservice" --health-interval 5s --health-retries 20
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}_service
+    env:
+      TEST_POSTGRES_URL: postgresql://autoservice:autoservice@localhost:5432/autoservice_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements-dev.txt
+      - run: pytest -v tests/integration
+
+  component:
+    needs: [unit, integration]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m unittest -v test_system.UnitTests
-      - run: python -m unittest -v test_system.IntegrationTests
-
-  build:
-    needs: tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: docker build -t autoservice-orders:${{ github.sha }} .
-      - run: docker build -t autoservice-repairs:${{ github.sha }} .
-
-  e2e:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: docker compose up --build -d --wait rabbitmq orders repairs
-      - run: docker compose up -d orders_worker repairs_worker
+      - run: pip install pytest==8.3.4 requests==2.32.3
+      - name: Build images and start the stand
+        run: docker compose up --build -d --wait
       - run: docker compose ps
-      - run: ./e2e_test.sh
-      - if: always()
+      - name: Component tests of every service
+        run: |
+          port=8001
+          for s in $SERVICES; do
+            (cd ${s}_service && SERVICE_URL=http://localhost:$port CLIENTS_SERVICE_URL=http://localhost:8001 \
+              python -m pytest -v -p no:cacheprovider tests/component)
+            port=$((port + 1))
+          done
+      - name: End-to-end scenario
+        run: python e2e/scenario.py
+      - if: failure()
         run: docker compose logs --no-color
       - if: always()
         run: docker compose down -v

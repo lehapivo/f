@@ -1,0 +1,95 @@
+# Автосервис: 8 микросервисов, PostgreSQL и RabbitMQ
+name: autoservice
+x-service: &service
+  restart: on-failure
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+    interval: 5s
+    retries: 20
+  depends_on:
+    postgres: {condition: service_healthy}
+    rabbitmq: {condition: service_healthy}
+
+x-env: &env
+  AMQP_URL: amqp://guest:guest@rabbitmq:5672/
+  CLIENTS_URL: http://clients:8000
+  WAREHOUSE_URL: http://warehouse:8000
+  BILLING_URL: http://billing:8000
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: autoservice
+      POSTGRES_PASSWORD: autoservice
+      POSTGRES_DB: postgres
+    ports: ["5432:5432"]
+    volumes:
+      - ./infra/init-databases.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autoservice -d autoservice_test"]
+      interval: 5s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    hostname: rabbitmq
+    ports: ["5672:5672", "15672:15672"]
+    volumes: [rabbit_data:/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      retries: 30
+
+  clients:
+    <<: *service
+    build: ./clients_service
+    ports: ["8001:8000"]
+    environment: {<<: *env, POSTGRES_URL: "postgresql://autoservice:autoservice@postgres:5432/clients"}
+
+  appointments:
+    <<: *service
+    build: ./appointments_service
+    ports: ["8002:8000"]
+    environment: {<<: *env, POSTGRES_URL: "postgresql://autoservice:autoservice@postgres:5432/appointments"}
+
+  orders:
+    <<: *service
+    build: ./orders_service
+    ports: ["8003:8000"]
+    environment: {<<: *env, POSTGRES_URL: "postgresql://autoservice:autoservice@postgres:5432/orders"}
+
+  diagnostics:
+    <<: *service
+    build: ./diagnostics_service
+    ports: ["8004:8000"]
+    environment: {<<: *env, POSTGRES_URL: "postgresql://autoservice:autoservice@postgres:5432/diagnostics"}
+
+  repairs:
+    <<: *service
+    build: ./repairs_service
+    ports: ["8005:8000"]
+    environment: {<<: *env, POSTGRES_URL: "postgresql://autoservice:autoservice@postgres:5432/repairs"}
+
+  warehouse:
+    <<: *service
+    build: ./warehouse_service
+    ports: ["8006:8000"]
+    environment: {<<: *env, POSTGRES_URL: "postgresql://autoservice:autoservice@postgres:5432/warehouse"}
+
+  billing:
+    <<: *service
+    build: ./billing_service
+    ports: ["8007:8000"]
+    environment: {<<: *env, POSTGRES_URL: "postgresql://autoservice:autoservice@postgres:5432/billing"}
+
+  payments:
+    <<: *service
+    build: ./payments_service
+    ports: ["8008:8000"]
+    environment: {<<: *env, POSTGRES_URL: "postgresql://autoservice:autoservice@postgres:5432/payments"}
+
+volumes:
+  pg_data:
+  rabbit_data:
